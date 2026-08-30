@@ -31,6 +31,31 @@ const MODEL_MAPPING = {
   'gemini-pro': 'moonshotai/kimi-k3'
 };
 
+// Retry wrapper para lidar com 529 (overloaded) e 429 (rate limit) da NVIDIA NIM
+async function callNimWithRetry(url, data, options, maxRetries = 3) {
+  let lastError;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await axios.post(url, data, options);
+    } catch (error) {
+      lastError = error;
+      const status = error.response?.status;
+
+      // Só retenta em erro de sobrecarga (529) ou rate limit (429)
+      if (status === 529 || status === 429) {
+        const waitTime = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        console.log(`Tentativa ${attempt + 1} falhou (${status}), esperando ${waitTime}ms...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        continue;
+      }
+
+      // Outros erros (400, 401, etc) não adianta retentar
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
